@@ -1,0 +1,72 @@
+name: "Godot Android CI (stable)"
+
+on:
+  workflow_dispatch: # Запуск строго по кнопке
+
+env:
+  GODOT_VERSION: "4.6"
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  # Убираем предупреждение GitHub о Node.js 20:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Скачиваем репозиторий с поддержкой Git LFS для тяжелых .so файлов плагина
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # Настройка Java 17
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ИСПРАВЛЕННЫЙ шаг настройки Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      # Скачивание Godot CLI
+      - name: Download Godot
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          chmod +x Godot_v${GODOT_VERSION}-stable_linux.x86_64
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot
+
+      # Установка шаблонов экспорта Godot
+      - name: Install Godot templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          wget -q https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          mv templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+          rm -rf templates Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+
+      # Экспорт APK с предварительным импортом
+      - name: Export APK
+        run: |
+          mkdir -p build
+          cd $GITHUB_WORKSPACE
+          
+          # 1. Сначала принудительно импортируем ассеты в чистый кэш Linux сервера
+          ./godot --headless --editor --quit --path .
+          
+          # 2. Экспортируем APK
+          ./godot --headless \
+            --path . \
+            --export-debug "Android Debug" build/game-debug.apk
+
+      # Сохранение готового APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/game-debug.apk
